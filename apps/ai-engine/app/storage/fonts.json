@@ -1,0 +1,50 @@
+[
+  {
+    "id": "noto-sans-ethiopic",
+    "family": "Noto Sans Ethiopic",
+    "category": "modern",
+    "style": "sans-serif",
+    "license": "OFL-1.1",
+    "source": "Google Fonts",
+    "sample_text": "ሰላም ኢትዮጵያ",
+    "recommended_use": ["captions", "ui", "social"],
+    "weights": [400, 700],
+    "paths": []
+  },
+  {
+    "id": "noto-serif-ethiopic",
+    "family": "Noto Serif Ethiopic",
+    "category": "traditional",
+    "style": "serif",
+    "license": "OFL-1.1",
+    "source": "Google Fonts",
+    "sample_text": "ሰላም ኢትዮጵያ",
+    "recommended_use": ["documentary", "news"],
+    "weights": [400, 700],
+    "paths": []
+  },
+  {
+    "id": "abyssinica-sil",
+    "family": "Abyssinica SIL",
+    "category": "traditional",
+    "style": "serif",
+    "license": "OFL-1.1",
+    "source": "SIL",
+    "sample_text": "ሰላም ኢትዮጵያ",
+    "recommended_use": ["books", "traditional"],
+    "weights": [400],
+    "paths": []
+  },
+  {
+    "id": "ethiopic-bold-display",
+    "family": "Ethiopic Bold Display",
+    "category": "bold",
+    "style": "display",
+    "license": "OFL-1.1",
+    "source": "YeneCut curated open-source collection",
+    "sample_text": "ሰላም ኢትዮጵያ",
+    "recommended_use": ["headlines", "social"],
+    "weights": [700, 900],
+    "paths": []
+  }
+]

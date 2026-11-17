@@ -1,0 +1,20 @@
+{
+  "name": "yenecut-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "YeneCut AI: Ethiopian AI-powered Adobe Premiere Pro plugin",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build:plugin": "npm --workspace apps/premiere-plugin run build",
+    "typecheck:plugin": "npm --workspace apps/premiere-plugin run typecheck",
+    "test:plugin": "npm --workspace apps/premiere-plugin run test",
+    "test:ai": "python -m pytest apps/ai-engine/tests -q",
+    "engine:dev": "python -m uvicorn app.main:app --app-dir apps/ai-engine --host 127.0.0.1 --port 8765 --reload"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
