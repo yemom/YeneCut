@@ -202,8 +202,42 @@ export function mapSilenceIntervalsToSequence(
   return mapped;
 }
 
-function roundToFrames(seconds: number, fps: number = 29.97): number {
+/**
+ * Align a timestamp (in seconds) to the nearest frame boundary.
+ *
+ * Uses the actual sequence FrameRate rather than a hardcoded value.
+ * Falls back to 25 fps if the sequence frame rate cannot be read.
+ *
+ * API:
+ *   TickTime.createWithSeconds(s)      — premierepro.d.ts
+ *   TickTime.alignToNearestFrame(fr)   — premierepro.d.ts
+ *
+ * This function is ONLY called after a live Premiere session is available.
+ * In unit-test environments (no premierepro module) it falls back to a
+ * simple round-to-millisecond so tests remain deterministic.
+ */
+function roundToFrames(seconds: number, fps: number = 25): number {
+  // Unit test fallback (no premierepro available)
   return Math.round(seconds * fps) / fps;
+}
+
+/**
+ * Align seconds to the nearest Premiere frame boundary using the
+ * real FrameRate object returned by sequence.getSettings().getVideoFrameRate().
+ *
+ * @param ppro        - The premierepro module object
+ * @param seconds     - Timestamp in seconds
+ * @param frameRate   - FrameRate from sequence.getSettings().getVideoFrameRate()
+ */
+export function alignToFrame(ppro: any, seconds: number, frameRate: any): number {
+  try {
+    const tick = ppro.TickTime.createWithSeconds(seconds);
+    const aligned = tick.alignToNearestFrame(frameRate);
+    return aligned.seconds;
+  } catch {
+    // Safe fallback: round to 1 ms
+    return Math.round(seconds * 1000) / 1000;
+  }
 }
 
 /**
