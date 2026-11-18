@@ -28,6 +28,10 @@ export interface ClipInfo {
   sourceOutPoint: number;    // seconds in source media
   trackIndex: number;
   trackType: "video" | "audio";
+  speed?: number;            // 1.0 = normal
+  isReversed?: boolean;
+  isNestedSequence?: boolean;
+  isAdjustmentLayer?: boolean;
 }
 
 declare const require: (id: string) => any;
@@ -101,13 +105,41 @@ export async function getSelectedClips(): Promise<ClipInfo[]> {
           const inPoint = await item.getInPoint();
           const outPoint = await item.getOutPoint();
           let mediaPath: string | null = null;
+          let isNestedSequence = false;
           try {
             const projectItem = await item.getProjectItem();
             if (projectItem) {
               mediaPath = await projectItem.getMediaFilePath();
+              if (projectItem.getContentType && ppro.Constants?.ContentType) {
+                const ct = await projectItem.getContentType();
+                if (ct === ppro.Constants.ContentType.SEQUENCE) {
+                  isNestedSequence = true;
+                }
+              }
             }
           } catch {
             // Media path may not be available for synthetic clips
+          }
+
+          let speed = 1.0;
+          try {
+            if (item.getSpeed) speed = await item.getSpeed();
+          } catch {
+            // Speed defaults to 1.0
+          }
+
+          let isReversed = false;
+          try {
+            if (item.isSpeedReversed) isReversed = (await item.isSpeedReversed()) !== 0;
+          } catch {
+            // Reversed defaults to false
+          }
+
+          let isAdjustmentLayer = false;
+          try {
+            if (item.isAdjustmentLayer) isAdjustmentLayer = await item.isAdjustmentLayer();
+          } catch {
+            // Adjustment layer defaults to false
           }
 
           result.push({
@@ -119,6 +151,10 @@ export async function getSelectedClips(): Promise<ClipInfo[]> {
             sourceOutPoint: outPoint.seconds,
             trackIndex: i,
             trackType: "video",
+            speed,
+            isReversed,
+            isNestedSequence,
+            isAdjustmentLayer,
           });
         } catch {
           // Ignore inaccessible clip items
@@ -137,14 +173,31 @@ export async function getSelectedClips(): Promise<ClipInfo[]> {
           const inPoint = await item.getInPoint();
           const outPoint = await item.getOutPoint();
           let mediaPath: string | null = null;
+          let isNestedSequence = false;
           try {
             const projectItem = await item.getProjectItem();
             if (projectItem) {
               mediaPath = await projectItem.getMediaFilePath();
+              if (projectItem.getContentType && ppro.Constants?.ContentType) {
+                const ct = await projectItem.getContentType();
+                if (ct === ppro.Constants.ContentType.SEQUENCE) {
+                  isNestedSequence = true;
+                }
+              }
             }
           } catch {
             // Media path may not be available
           }
+
+          let speed = 1.0;
+          try {
+            if (item.getSpeed) speed = await item.getSpeed();
+          } catch {}
+
+          let isReversed = false;
+          try {
+            if (item.isSpeedReversed) isReversed = (await item.isSpeedReversed()) !== 0;
+          } catch {}
 
           result.push({
             name: (await item.getName?.()) || "Audio Clip",
@@ -155,6 +208,10 @@ export async function getSelectedClips(): Promise<ClipInfo[]> {
             sourceOutPoint: outPoint.seconds,
             trackIndex: i,
             trackType: "audio",
+            speed,
+            isReversed,
+            isNestedSequence,
+            isAdjustmentLayer: false,
           });
         } catch {
           // Ignore inaccessible clip items

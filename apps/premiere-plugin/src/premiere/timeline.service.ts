@@ -328,6 +328,45 @@ export async function applySilenceCuts(
     };
   }
 
+  // Reject unsupported editing conditions safely (Phase 3 & Phase 2 safety contract)
+  if (targetClip.isAdjustmentLayer) {
+    return {
+      success: false,
+      message: "Selected item is an adjustment layer. Silence cut requires an audio or video media clip.",
+      cutsApplied: 0,
+      noOp: true,
+    };
+  }
+  if (targetClip.isNestedSequence) {
+    return {
+      success: false,
+      message:
+        "Selected clip is a nested sequence. YeneCut requires a direct media clip to perform accurate silence cuts. " +
+        "Please open the nested sequence and select the underlying clip directly.",
+      cutsApplied: 0,
+      noOp: true,
+    };
+  }
+  if (targetClip.isReversed) {
+    return {
+      success: false,
+      message: "Selected clip has reversed playback. Silence intervals cannot be mapped accurately to reversed clips.",
+      cutsApplied: 0,
+      noOp: true,
+    };
+  }
+  if (targetClip.speed !== undefined && Math.abs(targetClip.speed - 1.0) > 0.001) {
+    return {
+      success: false,
+      message:
+        `Selected clip has a non-standard playback speed (${targetClip.speed}x). Time-remapped or speed-altered clips ` +
+        "are not supported because source audio coordinates do not correspond 1:1 with sequence time. " +
+        "Please reset speed to 100% or render and replace the clip before cutting.",
+      cutsApplied: 0,
+      noOp: true,
+    };
+  }
+
   // Map source-domain silence intervals to sequence timeline coordinates
   const sequenceRegions = mapSilenceIntervalsToSequence(regions, targetClip);
 
@@ -530,6 +569,17 @@ export async function previewSilenceCutsAsMarkers(
   const sequence = await getActiveSequence(project);
   if (!sequence) return false;
 
+  if (targetClip) {
+    if (targetClip.isAdjustmentLayer || targetClip.isNestedSequence || targetClip.isReversed) {
+      console.warn("[YeneCut] Cannot preview silence markers on adjustment layers, nested sequences, or reversed clips.");
+      return false;
+    }
+    if (targetClip.speed !== undefined && Math.abs(targetClip.speed - 1.0) > 0.001) {
+      console.warn(`[YeneCut] Cannot preview silence markers on speed-ramped clips (${targetClip.speed}x).`);
+      return false;
+    }
+  }
+
   const sequenceRegions = targetClip
     ? mapSilenceIntervalsToSequence(regions, targetClip)
     : regions;
@@ -571,6 +621,17 @@ export async function clearPreviewMarkers(): Promise<boolean> {
   if (!ppro || !project) return false;
   const sequence = await getActiveSequence(project);
   if (!sequence) return false;
+
+  if (targetClip) {
+    if (targetClip.isAdjustmentLayer || targetClip.isNestedSequence || targetClip.isReversed) {
+      console.warn("[YeneCut] Cannot preview silence markers on adjustment layers, nested sequences, or reversed clips.");
+      return false;
+    }
+    if (targetClip.speed !== undefined && Math.abs(targetClip.speed - 1.0) > 0.001) {
+      console.warn(`[YeneCut] Cannot preview silence markers on speed-ramped clips (${targetClip.speed}x).`);
+      return false;
+    }
+  }
 
   try {
     const markersOwner = await ppro.Markers.getMarkers(sequence);
