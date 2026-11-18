@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
 
@@ -27,46 +28,55 @@ async def _run_transcription(job, request: TranscriptionRequest) -> dict:
     job.check_cancelled()
     source = validate_source_path(request.source_path, settings.max_upload_bytes)
     job.progress = 0.15
-    audio_path = extract_audio(source, settings.max_upload_bytes)
-    job.progress = 0.3
-    job.check_cancelled()
-    audio = load_wav(audio_path)
-    prepared = prepare_audio(audio, settings.max_audio_duration_seconds, normalize=False)
-    # Save prepared audio for Whisper (it can read wav).
-    from app.utils.ffmpeg import temp_wav_path
-    from scipy.io import wavfile
-    import numpy as np
 
-    prepared_path = temp_wav_path("prepared")
-    wavfile.write(prepared_path, prepared.sample_rate, (prepared.samples * 32767).astype(np.int16))
-    job.progress = 0.45
-    device = request.device or settings.device
-    compute_type = request.compute_type or settings.compute_type
-    recognizer = create_recognizer(request.model_size, device, compute_type, str(settings.model_dir))
-    language, segments = recognizer.transcribe(prepared_path, request.language, request.word_timestamps)
-    job.progress = 0.8
-    corrected_segments = []
-    for segment in segments:
-        corrected_segments.append(
-            TranscriptSegment(
-                start=segment.start,
-                end=segment.end,
-                text=correct_transcript(segment.text) if language and language.startswith("am") else segment.text,
-                confidence=segment.confidence,
-                words=segment.words,
+    audio_path: Path | None = None
+    prepared_path: Path | None = None
+
+    try:
+        audio_path = extract_audio(source, settings.max_upload_bytes)
+        job.progress = 0.3
+        job.check_cancelled()
+        audio = load_wav(audio_path)
+        prepared = prepare_audio(audio, settings.max_audio_duration_seconds, normalize=False)
+
+        # Save prepared audio for Whisper (it can read wav).
+        from app.utils.ffmpeg import temp_wav_path
+        from scipy.io import wavfile
+        import numpy as np
+
+        prepared_path = temp_wav_path("prepared")
+        wavfile.write(prepared_path, prepared.sample_rate, (prepared.samples * 32767).astype(np.int16))
+        job.progress = 0.45
+
+        device = request.device or settings.device
+        compute_type = request.compute_type or settings.compute_type
+        recognizer = create_recognizer(request.model_size, device, compute_type, str(settings.model_dir))
+        language, segments = recognizer.transcribe(prepared_path, request.language, request.word_timestamps)
+        job.progress = 0.8
+        corrected_segments = []
+        for segment in segments:
+            corrected_segments.append(
+                TranscriptSegment(
+                    start=segment.start,
+                    end=segment.end,
+                    text=correct_transcript(segment.text) if language and language.startswith("am") else segment.text,
+                    confidence=segment.confidence,
+                    words=segment.words,
+                )
             )
-        )
-    for path in (audio_path, prepared_path):
-        try:
-            path.unlink(missing_ok=True)
-        except Exception:
-            pass
-    job.progress = 0.95
-    return {
-        "status": "completed",
-        "language": language or request.language or "unknown",
-        "segments": [segment.model_dump() for segment in corrected_segments],
-    }
+        job.progress = 0.95
+        return {
+            "status": "completed",
+            "language": language or request.language or "unknown",
+            "segments": [segment.model_dump() for segment in corrected_segments],
+        }
+    finally:
+        for p in (audio_path, prepared_path):
+            if p is not None:
+                try:
+                    p.unlink(missing_ok=True)
+                except Exception:
+                    pass
 
 
 @router.post("/transcription/jobs", response_model=TranscriptionResponse)
@@ -100,10 +110,9 @@ async def get_transcription_job(job_id: str) -> TranscriptionResponse:
             progress=job.progress,
         )
     return TranscriptionResponse(
-        status=job.status,
+        status=job.status,  # type: ignore[arg-type]
         language="unknown",
         segments=[],
         job_id=job.job_id,
         progress=job.progress,
-        error=job.error if hasattr(job, "error") else None,
     )

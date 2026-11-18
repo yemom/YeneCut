@@ -15,15 +15,9 @@ export default defineConfig({
     minify: false,
     sourcemap: true,
     target: "esnext",
-    rolldownOptions: {
-      input: resolve(__dirname, "index.tsx"),
+    rollupOptions: {
+      input: resolve(__dirname, "index.html"),
       external: ["os", "premierepro", "uxp"],
-      output: {
-        format: "cjs",
-        preserveModules: true,
-        preserveModulesRoot: __dirname,
-        entryFileNames: "[name].js",
-      },
     },
   },
   test: {

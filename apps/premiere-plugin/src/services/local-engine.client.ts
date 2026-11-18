@@ -33,12 +33,19 @@ export const defaultSilenceSettings: SilenceSettings = {
   preview_mode: true,
 };
 
+export interface TranscriptWord {
+  start: number;
+  end: number;
+  text: string;
+  confidence?: number | null;
+}
+
 export interface TranscriptSegment {
   start: number;
   end: number;
   text: string;
   confidence?: number | null;
-  words?: { start: number; end: number; text: string; confidence?: number | null }[];
+  words?: TranscriptWord[];
 }
 
 export interface CaptionSegment {
@@ -60,23 +67,48 @@ export interface FontMetadata {
   paths: string[];
 }
 
+export interface JobStatus {
+  job_id: string;
+  job_type: string;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  progress: number;
+  error?: string | null;
+  result?: any;
+}
+
 const DEFAULT_ENGINE_URL = "http://127.0.0.1:8765";
 const DEFAULT_TOKEN = "yenecut-dev-token";
 
 export function getEngineBaseUrl(): string {
-  return localStorage.getItem("yenecut.engineUrl") || DEFAULT_ENGINE_URL;
+  try {
+    return localStorage.getItem("yenecut.engineUrl") || DEFAULT_ENGINE_URL;
+  } catch {
+    return DEFAULT_ENGINE_URL;
+  }
 }
 
 export function getEngineToken(): string {
-  return localStorage.getItem("yenecut.engineToken") || DEFAULT_TOKEN;
+  try {
+    return localStorage.getItem("yenecut.engineToken") || DEFAULT_TOKEN;
+  } catch {
+    return DEFAULT_TOKEN;
+  }
 }
 
 export function setEngineBaseUrl(url: string): void {
-  localStorage.setItem("yenecut.engineUrl", url);
+  try {
+    localStorage.setItem("yenecut.engineUrl", url);
+  } catch {
+    // Ignore storage errors in test or restricted environments
+  }
 }
 
 export function setEngineToken(token: string): void {
-  localStorage.setItem("yenecut.engineToken", token);
+  try {
+    localStorage.setItem("yenecut.engineToken", token);
+  } catch {
+    // Ignore storage errors
+  }
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -95,12 +127,24 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function checkEngineHealth(): Promise<{ status: string; ffmpeg_available: boolean }> {
-  const response = await fetch(`${getEngineBaseUrl()}/health`, {
-    headers: { "X-YeneCut-Token": getEngineToken() },
-  });
+export async function checkEngineHealth(): Promise<{
+  status: string;
+  service?: string;
+  version?: string;
+  ffmpeg_available: boolean;
+  faster_whisper_available?: boolean;
+}> {
+  const response = await fetch(`${getEngineBaseUrl()}/health`);
   if (!response.ok) throw new Error(`Engine unavailable: ${response.status}`);
   return response.json();
+}
+
+export async function getJobStatus(jobId: string): Promise<JobStatus> {
+  return request<JobStatus>(`/api/v1/jobs/${jobId}`);
+}
+
+export async function cancelJob(jobId: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/api/v1/jobs/${jobId}/cancel`, { method: "POST" });
 }
 
 export async function analyzeAudio(sourcePath: string): Promise<{ status: string; duration: number; sample_rate: number }> {
@@ -110,14 +154,18 @@ export async function analyzeAudio(sourcePath: string): Promise<{ status: string
   });
 }
 
-export async function detectSilence(sourcePath: string, settings: SilenceSettings): Promise<{
+export async function detectSilence(
+  sourcePath: string,
+  settings: SilenceSettings,
+  sync: boolean = true
+): Promise<{
   status: string;
   duration: number;
   silence_regions: SilenceRegion[];
   estimated_removable_duration: number;
   job_id?: string;
 }> {
-  return request(`/api/v1/silence/detect?sync=true`, {
+  return request(`/api/v1/silence/detect?sync=${sync}`, {
     method: "POST",
     body: JSON.stringify({ source_path: sourcePath, settings }),
   });
@@ -128,10 +176,17 @@ export async function createTranscriptionJob(payload: {
   language?: string | null;
   model_size: string;
   word_timestamps: boolean;
+  sync?: boolean;
 }): Promise<{ status: string; job_id: string; language: string; segments: TranscriptSegment[] }> {
-  return request("/api/v1/transcription/jobs?sync=true", {
+  const sync = payload.sync ?? true;
+  return request(`/api/v1/transcription/jobs?sync=${sync}`, {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      source_path: payload.source_path,
+      language: payload.language,
+      model_size: payload.model_size,
+      word_timestamps: payload.word_timestamps,
+    }),
   });
 }
 
@@ -166,7 +221,15 @@ export async function listFonts(): Promise<FontMetadata[]> {
   return response.fonts;
 }
 
-export async function createPremiereTranscript(payload: { captions: { start: number; end: number; text: string }[]; language?: string }): Promise<{ json: string }> {
+export async function createPremiereTranscript(payload: {
+  captions: {
+    start: number;
+    end: number;
+    text: string;
+    words?: { start: number; end: number; text: string; confidence?: number | null }[];
+  }[];
+  language?: string;
+}): Promise<{ json: string }> {
   return request("/api/v1/captions/premiere-transcript", {
     method: "POST",
     body: JSON.stringify(payload),

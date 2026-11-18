@@ -1,3 +1,14 @@
+/**
+ * YeneCut AI — Premiere Pro UXP API Adapter
+ *
+ * All interactions with the Adobe Premiere Pro UXP host APIs
+ * are centralized and isolated within this adapter.
+ *
+ * References:
+ * - Official Adobe Premiere Pro UXP API: https://developer.adobe.com/premiere-pro/uxp/
+ * - Type definitions: @adobe/premierepro
+ */
+
 export interface PremiereProjectHandle {
   name: string;
   guid: string;
@@ -6,6 +17,17 @@ export interface PremiereProjectHandle {
 export interface PremiereSequenceHandle {
   name: string;
   guid: string;
+}
+
+export interface ClipInfo {
+  name: string;
+  mediaPath: string | null;
+  startInSequence: number;   // seconds on timeline
+  endInSequence: number;     // seconds on timeline
+  sourceInPoint: number;     // seconds in source media
+  sourceOutPoint: number;    // seconds in source media
+  trackIndex: number;
+  trackType: "video" | "audio";
 }
 
 declare const require: (id: string) => any;
@@ -52,6 +74,141 @@ export async function getSequenceFrameRate(sequence: any): Promise<string | null
   }
 }
 
+/**
+ * Retrieve user-selected clips from the active timeline sequence.
+ * This replaces arbitrary project-bin item retrieval.
+ */
+export async function getSelectedClips(): Promise<ClipInfo[]> {
+  const ppro = getPremiere();
+  const project = await getActiveProject();
+  if (!ppro || !project) return [];
+  const sequence = await getActiveSequence(project);
+  if (!sequence) return [];
+
+  const result: ClipInfo[] = [];
+  try {
+    const videoTrackCount = await sequence.getVideoTrackCount();
+    const audioTrackCount = await sequence.getAudioTrackCount();
+
+    // Query video tracks for selected clips
+    for (let i = 0; i < videoTrackCount; i++) {
+      const track = await sequence.getVideoTrack(i);
+      const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, true); // true = selected only
+      for (const item of items) {
+        try {
+          const startTime = await item.getStartTime();
+          const endTime = await item.getEndTime();
+          const inPoint = await item.getInPoint();
+          const outPoint = await item.getOutPoint();
+          let mediaPath: string | null = null;
+          try {
+            const projectItem = await item.getProjectItem();
+            if (projectItem) {
+              mediaPath = await projectItem.getMediaFilePath();
+            }
+          } catch {
+            // Media path may not be available for synthetic clips
+          }
+
+          result.push({
+            name: (await item.getName?.()) || "Video Clip",
+            mediaPath,
+            startInSequence: startTime.seconds,
+            endInSequence: endTime.seconds,
+            sourceInPoint: inPoint.seconds,
+            sourceOutPoint: outPoint.seconds,
+            trackIndex: i,
+            trackType: "video",
+          });
+        } catch {
+          // Ignore inaccessible clip items
+        }
+      }
+    }
+
+    // Query audio tracks for selected clips
+    for (let i = 0; i < audioTrackCount; i++) {
+      const track = await sequence.getAudioTrack(i);
+      const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, true);
+      for (const item of items) {
+        try {
+          const startTime = await item.getStartTime();
+          const endTime = await item.getEndTime();
+          const inPoint = await item.getInPoint();
+          const outPoint = await item.getOutPoint();
+          let mediaPath: string | null = null;
+          try {
+            const projectItem = await item.getProjectItem();
+            if (projectItem) {
+              mediaPath = await projectItem.getMediaFilePath();
+            }
+          } catch {
+            // Media path may not be available
+          }
+
+          result.push({
+            name: (await item.getName?.()) || "Audio Clip",
+            mediaPath,
+            startInSequence: startTime.seconds,
+            endInSequence: endTime.seconds,
+            sourceInPoint: inPoint.seconds,
+            sourceOutPoint: outPoint.seconds,
+            trackIndex: i,
+            trackType: "audio",
+          });
+        } catch {
+          // Ignore inaccessible clip items
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[YeneCut] getSelectedClips query failed:", err);
+  }
+
+  return result;
+}
+
+/**
+ * Dedicated Time Mapping:
+ * Maps a timestamp in source media coordinates to sequence timeline coordinates.
+ */
+export function mapSourceToSequenceTime(sourceTime: number, clip: ClipInfo): number | null {
+  if (sourceTime < clip.sourceInPoint || sourceTime > clip.sourceOutPoint) {
+    return null; // Timestamp falls outside this clip's used range
+  }
+  const offset = sourceTime - clip.sourceInPoint;
+  return clip.startInSequence + offset;
+}
+
+/**
+ * Maps source silence intervals to sequence timeline intervals for a specific clip.
+ */
+export function mapSilenceIntervalsToSequence(
+  intervals: { start: number; end: number }[],
+  clip: ClipInfo
+): { start: number; end: number }[] {
+  const mapped: { start: number; end: number }[] = [];
+  for (const interval of intervals) {
+    const clampedStart = Math.max(interval.start, clip.sourceInPoint);
+    const clampedEnd = Math.min(interval.end, clip.sourceOutPoint);
+    if (clampedEnd <= clampedStart) continue;
+
+    const seqStart = mapSourceToSequenceTime(clampedStart, clip);
+    const seqEnd = mapSourceToSequenceTime(clampedEnd, clip);
+    if (seqStart !== null && seqEnd !== null) {
+      mapped.push({ start: roundToFrames(seqStart), end: roundToFrames(seqEnd) });
+    }
+  }
+  return mapped;
+}
+
+function roundToFrames(seconds: number, fps: number = 29.97): number {
+  return Math.round(seconds * fps) / fps;
+}
+
+/**
+ * Retrieve primary selected clip project item for transcript attachment.
+ */
 export async function getClipProjectItem(project: any, includeSequence = true): Promise<any | null> {
   const ppro = getPremiere();
   if (!ppro || !project) return null;
@@ -77,12 +234,16 @@ export async function getClipProjectItem(project: any, includeSequence = true): 
   return null;
 }
 
+/**
+ * Imports transcript segments into Premiere's native Transcript system.
+ */
 export async function importTranscriptToSelectedClip(transcriptJson: string): Promise<boolean> {
   const ppro = getPremiere();
   const project = await getActiveProject();
   if (!ppro || !project) return false;
   const clip = await getClipProjectItem(project, true);
   if (!clip) return false;
+
   try {
     let success = false;
     project.lockedAccess(() => {
@@ -95,11 +256,15 @@ export async function importTranscriptToSelectedClip(transcriptJson: string): Pr
       }, "YeneCut import transcript");
     });
     return success;
-  } catch {
+  } catch (error) {
+    console.error("[YeneCut] Transcript import failed:", error);
     return false;
   }
 }
 
+/**
+ * Fallback media path lookup if no clip is explicitly selected.
+ */
 export async function getMediaFilePath(project: any): Promise<string | null> {
   const ppro = getPremiere();
   if (!ppro || !project) return null;

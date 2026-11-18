@@ -32,7 +32,7 @@ class SilenceRegion(BaseModel):
 
 
 class SilenceDetectionResponse(BaseModel):
-    status: Literal["completed", "failed", "cancelled"]
+    status: Literal["queued", "running", "completed", "failed", "cancelled"]
     duration: float
     silence_regions: list[SilenceRegion]
     estimated_removable_duration: float

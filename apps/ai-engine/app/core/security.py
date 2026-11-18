@@ -21,10 +21,29 @@ def verify_token(token: str | None = Security(api_key_header)) -> str:
 
 
 ALLOWED_MEDIA_EXTENSIONS = {
-    ".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg", ".mp4", ".mov", ".mkv",
-    ".avi", ".mxf", ".prproj",
+    ".wav", ".mp3", ".m4a", ".aac", ".flac", ".ogg",
+    ".mp4", ".mov", ".mkv", ".avi", ".mxf",
 }
+ALLOWED_FONT_EXTENSIONS = {".ttf", ".otf", ".woff", ".woff2", ".ttc"}
 ALLOWED_OUTPUT_EXTENSIONS = {".wav", ".srt", ".vtt", ".ass", ".json", ".txt"}
+
+
+def validate_font_path(font_path: str, max_bytes: int = 50 * 1024 * 1024) -> Path:
+    if not font_path:
+        raise SecurityError("font_path is required")
+    path = Path(font_path).expanduser().resolve()
+    if not path.is_absolute():
+        raise SecurityError("font_path must be absolute")
+    if not path.exists() or not path.is_file():
+        raise SecurityError(f"font file does not exist: {path}")
+    if path.suffix.lower() not in ALLOWED_FONT_EXTENSIONS:
+        raise SecurityError(f"unsupported font extension: {path.suffix}")
+    size = path.stat().st_size
+    if size <= 0 or size > max_bytes:
+        raise SecurityError(f"font file size is outside allowed range: {size}")
+    if ".." in path.parts:
+        raise SecurityError("path traversal is not allowed")
+    return path
 
 
 def validate_source_path(source_path: str, max_bytes: int) -> Path:

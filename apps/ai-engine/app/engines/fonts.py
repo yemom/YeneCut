@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from app.core.exceptions import ValidationError
-from app.core.security import validate_source_path
+from app.core.security import validate_font_path
 from app.schemas.models import FontValidationRequest, FontValidationResponse
 
 FONT_LIBRARY_PATH = Path(__file__).resolve().parents[1] / "storage" / "fonts.json"
@@ -18,7 +18,7 @@ def load_font_library() -> list[dict]:
 def validate_font(request: FontValidationRequest, max_bytes: int) -> FontValidationResponse:
     if request.font_path:
         try:
-            path = validate_source_path(request.font_path, max_bytes)
+            path = validate_font_path(request.font_path, max_bytes)
         except Exception as exc:
             return FontValidationResponse(
                 available=False,

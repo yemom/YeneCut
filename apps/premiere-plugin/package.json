@@ -5,7 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "clean": "rimraf dist",
-    "build": "vite build",
+    "build": "vite build && node scripts/validate-build.mjs",
+    "validate": "node scripts/validate-build.mjs",
     "dev": "concurrently -k -n vite,types \"vite build --watch\" \"tsc --watch --noEmit --preserveWatchOutput\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
