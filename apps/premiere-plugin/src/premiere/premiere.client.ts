@@ -97,9 +97,10 @@ export async function getSelectedClips(): Promise<ClipInfo[]> {
     // Query video tracks for selected clips
     for (let i = 0; i < videoTrackCount; i++) {
       const track = await sequence.getVideoTrack(i);
-      const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, true); // true = selected only
+    const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false); // includeEmptyTrackItems=false
       for (const item of items) {
         try {
+          if (!(await item.getIsSelected())) continue;
           const startTime = await item.getStartTime();
           const endTime = await item.getEndTime();
           const inPoint = await item.getInPoint();
@@ -242,7 +243,8 @@ export function mapSourceToSequenceTime(sourceTime: number, clip: ClipInfo): num
  */
 export function mapSilenceIntervalsToSequence(
   intervals: { start: number; end: number }[],
-  clip: ClipInfo
+  clip: ClipInfo,
+  frameRate: number = 25
 ): { start: number; end: number }[] {
   const mapped: { start: number; end: number }[] = [];
   for (const interval of intervals) {
@@ -253,7 +255,7 @@ export function mapSilenceIntervalsToSequence(
     const seqStart = mapSourceToSequenceTime(clampedStart, clip);
     const seqEnd = mapSourceToSequenceTime(clampedEnd, clip);
     if (seqStart !== null && seqEnd !== null) {
-      mapped.push({ start: roundToFrames(seqStart), end: roundToFrames(seqEnd) });
+      mapped.push({ start: roundToFrames(seqStart, frameRate), end: roundToFrames(seqEnd, frameRate) });
     }
   }
   return mapped;

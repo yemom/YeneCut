@@ -45,6 +45,7 @@ export default function App() {
   const [frameRate, setFrameRate] = useState<string>("-");
   const [mediaPath, setMediaPath] = useState<string>("");
   const [selectedClip, setSelectedClip] = useState<ClipInfo | null>(null);
+  const [selectionWarning, setSelectionWarning] = useState<string>("");
   const [engineUrl, setEngineUrl] = useState<string>(getEngineBaseUrl());
   const [engineToken, setEngineTokenState] = useState<string>(getEngineToken());
 
@@ -103,6 +104,11 @@ export default function App() {
       }
       // Query selected sequence clip first (target-aware editing)
       const selectedClips = await getSelectedClips();
+      if (selectedClips.length > 1) {
+        setSelectionWarning(`Note: ${selectedClips.length} clips are selected. Targeting primary clip: "${selectedClips[0].name}".`);
+      } else {
+        setSelectionWarning("");
+      }
       if (selectedClips.length > 0) {
         setSelectedClip(selectedClips[0]);
         if (selectedClips[0].mediaPath) {
@@ -153,7 +159,7 @@ export default function App() {
     setApplyBusy(true);
     setApplyMessage("");
     try {
-      const result = await applySilenceCuts(silenceRegions, selectedClip);
+      const result = await applySilenceCuts(silenceRegions, selectedClip, parseFloat(frameRate) || 25);
       setApplyMessage(result.message);
     } catch (error) {
       setApplyMessage(error instanceof Error ? error.message : "Failed to apply cuts");
@@ -163,7 +169,7 @@ export default function App() {
   }
 
   async function previewCuts() {
-    const success = await previewSilenceCutsAsMarkers(silenceRegions, selectedClip);
+    const success = await previewSilenceCutsAsMarkers(silenceRegions, selectedClip, parseFloat(frameRate) || 25);
     setApplyMessage(
       success
         ? "Preview markers added to sequence. Unrelated tracks are untouched."
@@ -316,6 +322,11 @@ export default function App() {
                 <p>
                   <strong>Target Clip:</strong> {selectedClip.name} ({selectedClip.trackType.toUpperCase()} Track {selectedClip.trackIndex + 1}) | Timeline: {selectedClip.startInSequence.toFixed(2)}s – {selectedClip.endInSequence.toFixed(2)}s
                 </p>
+              </div>
+            )}
+            {selectionWarning && (
+              <div className="warning-banner">
+                <p>⚠️ {selectionWarning}</p>
               </div>
             )}
             <div className="actions">

@@ -22,7 +22,7 @@ def validate_font(request: FontValidationRequest, max_bytes: int) -> FontValidat
         except Exception as exc:
             return FontValidationResponse(
                 available=False,
-                family=request.family or path.stem if False else (request.family or "unknown"),
+                family=request.family or path.stem,
                 path=request.font_path,
                 message=str(exc),
             )

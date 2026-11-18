@@ -72,6 +72,7 @@ class SileroVADDetector:
     threshold: float = 0.5
     min_speech_duration: float = 0.25
     _model: Any = None
+    _actual_provider: str = "silero"
 
     def _ensure_model(self) -> Any:
         if self._model is not None:
@@ -103,11 +104,12 @@ class SileroVADDetector:
         except Exception as exc:
             logger.warning(f"Silero VAD inference failed, falling back to Energy VAD: {exc}")
             fallback = EnergyVADDetector(min_speech_duration=self.min_speech_duration)
+            self._actual_provider = "energy"
             return fallback.detect(audio, sample_rate)
 
     def get_metadata(self) -> dict[str, Any]:
         return {
-            "provider": "silero",
+            "provider": self._actual_provider,
             "threshold": self.threshold,
             "min_speech_duration": self.min_speech_duration,
         }

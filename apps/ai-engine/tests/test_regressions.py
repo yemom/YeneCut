@@ -116,6 +116,12 @@ def test_security_validate_source_path_validation(tmp_path):
     assert sanitize_filename("") == "output"
 
 
+def test_security_rejects_unc_network_paths():
+    """Verify that remote UNC paths are rejected to prevent Windows SMB/NTLM leaks."""
+    with pytest.raises(SecurityError, match="UNC network paths are not allowed"):
+        validate_source_path(r"\\remote-server\share\audio.wav", max_bytes=1024 * 1024)
+
+
 def test_security_auth_token_rejection():
     """Verify that requests without token or with wrong token receive 401."""
     from fastapi.testclient import TestClient

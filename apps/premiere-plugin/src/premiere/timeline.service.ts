@@ -73,6 +73,8 @@ export interface LinkedTrackItem {
   trackIndex: number;
   startInSequence: number;  // seconds
   endInSequence: number;    // seconds
+  sourceInPoint: number;    // seconds
+  sourceOutPoint: number;   // seconds
 }
 
 export interface EditPlan {
@@ -153,9 +155,27 @@ async function resolveLinkedClips(
           const candidateId = await getClipId(item);
           if (!candidateId || candidateId !== primary.clipId) continue;
 
-          // Same ProjectItem ID → verified linked partner
           const startTime = await item.getStartTime();
           const endTime = await item.getEndTime();
+          const inPoint = await item.getInPoint();
+          const outPoint = await item.getOutPoint();
+
+          // CRITICAL INSTANCE ISOLATION CHECK:
+          // Multiple instances of the same source media may exist on the timeline.
+          // A verified linked partner MUST synchronize with the primary clip's
+          // sequence position AND source in/out range. An item at a different position
+          // is an independent instance of the same project media, NOT a linked partner!
+          const timeMatch =
+            Math.abs(startTime.seconds - primary.startInSequence) < 0.1 &&
+            Math.abs(endTime.seconds - primary.endInSequence) < 0.1;
+          const sourceMatch =
+            Math.abs(inPoint.seconds - primary.sourceInPoint) < 0.1 &&
+            Math.abs(outPoint.seconds - primary.sourceOutPoint) < 0.1;
+
+          if (!timeMatch || !sourceMatch) {
+            continue; // Separate instance of the same media — do NOT link or modify!
+          }
+
           linked.push({
             item,
             clipId: candidateId,
@@ -163,6 +183,8 @@ async function resolveLinkedClips(
             trackIndex: i,
             startInSequence: startTime.seconds,
             endInSequence: endTime.seconds,
+            sourceInPoint: inPoint.seconds,
+            sourceOutPoint: outPoint.seconds,
           });
         } catch {
           // Inaccessible item — skip safely
@@ -217,11 +239,18 @@ async function buildEditPlan(
     try {
       const startTime = await item.getStartTime();
       const endTime = await item.getEndTime();
-      // Match by both position AND identity
+      // Match by both position AND source media boundaries
       const positionMatch =
         Math.abs(startTime.seconds - targetClip.startInSequence) < 0.1 &&
         Math.abs(endTime.seconds - targetClip.endInSequence) < 0.1;
       if (!positionMatch) continue;
+
+      const inPoint = await item.getInPoint();
+      const outPoint = await item.getOutPoint();
+      const sourceMatch =
+        Math.abs(inPoint.seconds - targetClip.sourceInPoint) < 0.1 &&
+        Math.abs(outPoint.seconds - targetClip.sourceOutPoint) < 0.1;
+      if (!sourceMatch) continue;
 
       const clipId = await getClipId(item);
       if (!clipId) {
@@ -236,6 +265,8 @@ async function buildEditPlan(
         trackIndex: targetClip.trackIndex,
         startInSequence: startTime.seconds,
         endInSequence: endTime.seconds,
+        sourceInPoint: inPoint.seconds,
+        sourceOutPoint: outPoint.seconds,
       };
       break;
     } catch {
@@ -305,7 +336,8 @@ async function buildEditPlan(
  */
 export async function applySilenceCuts(
   regions: CutRegion[],
-  targetClip?: ClipInfo | null
+  targetClip?: ClipInfo | null,
+  frameRate: number = 25
 ): Promise<SilenceCutResult> {
   const ppro = getPremiere();
   const project = await getActiveProject();
@@ -368,7 +400,7 @@ export async function applySilenceCuts(
   }
 
   // Map source-domain silence intervals to sequence timeline coordinates
-  const sequenceRegions = mapSilenceIntervalsToSequence(regions, targetClip);
+  const sequenceRegions = mapSilenceIntervalsToSequence(regions, targetClip, frameRate);
 
   if (sequenceRegions.length === 0) {
     return {
@@ -438,12 +470,18 @@ export async function applySilenceCuts(
       const allItems = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false);
       for (const item of allItems) {
         try {
-          // Verify identity — never modify an item we can't confirm belongs to our target clip
+          // Verify identity AND sequence boundaries —
+          // Never modify an item belonging to another timeline instance of the same project media!
           const candidateId = await getClipId(item);
           if (!candidateId || candidateId !== targetItem.clipId) continue;
 
           const startSecs = (await item.getStartTime()).seconds;
           const endSecs = (await item.getEndTime()).seconds;
+
+          // MUST fall within this specific clip instance's timeline boundaries
+          if (startSecs < targetItem.startInSequence - 0.05 || endSecs > targetItem.endInSequence + 0.05) {
+            continue; // Distinct instance of the same media file — PRESERVED UNTOUCHED!
+          }
 
           // Check if this item falls entirely inside any silence region
           const isSilent = plan!.silenceRegions.some(
@@ -485,36 +523,24 @@ export async function applySilenceCuts(
   try {
     project.lockedAccess(() => {
       try {
-        // Build a TrackItemSelection for the items to remove
-        const selection = sequence.createTrackItemSelection
-          ? sequence.createTrackItemSelection()
-          : null;
+        // Build a TrackItemSelection using Premiere's documented factory.
+        let selection: any = null;
+        ppro.TrackItemSelection.createEmptySelection((sel: any) => {
+          selection = sel;
+          itemsToRemove.forEach((item) => sel.addItem(item, false));
+        });
+
+        if (!selection) {
+          throw new Error("Unable to create a Premiere track-item selection.");
+        }
 
         removeSuccess = project.executeTransaction((compoundAction: any) => {
-          if (selection) {
-            itemsToRemove.forEach((item) => selection.addItem(item, false));
-            const removeAction = editor.createRemoveItemsAction(
-              selection,
-              true,  // ripple = true (close gaps)
-              ppro.Constants.MediaType.VIDEO
-            );
-            compoundAction.addAction(removeAction);
-          } else {
-            // Fallback: remove individually if selection API unavailable
-            itemsToRemove.forEach((item) => {
-              try {
-                const sel = item; // Some versions accept item directly
-                const removeAction = editor.createRemoveItemsAction(
-                  sel,
-                  true,
-                  ppro.Constants.MediaType.VIDEO
-                );
-                compoundAction.addAction(removeAction);
-              } catch (innerErr) {
-                console.warn("[YeneCut] Could not build remove action for item:", innerErr);
-              }
-            });
-          }
+          const removeAction = editor.createRemoveItemsAction(
+            selection,
+            true, // ripple = true (close gaps)
+            ppro.Constants.MediaType.VIDEO
+          );
+          compoundAction.addAction(removeAction);
         }, "YeneCut: Remove Silence");
       } catch (txErr) {
         removeError = txErr instanceof Error ? txErr.message : String(txErr);
@@ -561,7 +587,8 @@ export async function applySilenceCuts(
  */
 export async function previewSilenceCutsAsMarkers(
   regions: CutRegion[],
-  targetClip?: ClipInfo | null
+  targetClip?: ClipInfo | null,
+  frameRate: number = 25
 ): Promise<boolean> {
   const ppro = getPremiere();
   const project = await getActiveProject();
@@ -581,7 +608,7 @@ export async function previewSilenceCutsAsMarkers(
   }
 
   const sequenceRegions = targetClip
-    ? mapSilenceIntervalsToSequence(regions, targetClip)
+    ? mapSilenceIntervalsToSequence(regions, targetClip, frameRate)
     : regions;
 
   if (sequenceRegions.length === 0) return false;
@@ -645,7 +672,7 @@ export async function clearPreviewMarkers(): Promise<boolean> {
     project.lockedAccess(() => {
       project.executeTransaction((compoundAction: any) => {
         yenecutMarkers.forEach((marker: any) => {
-          compoundAction.addAction(markersOwner.createDeleteMarkerAction(marker));
+          compoundAction.addAction(markersOwner.createRemoveMarkerAction(marker));
         });
       }, "YeneCut: Clear Preview Markers");
     });
