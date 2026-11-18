@@ -19,10 +19,9 @@ if (Test-Path $credentialFile) {
 
 Set-Location $engineDir
 
-$python = if (Test-Path "$engineDir\.venv\Scripts\python.exe") {
-    "$engineDir\.venv\Scripts\python.exe"
-} else {
-    "python"
+$python = "python"
+if ((Test-Path "$engineDir\.venv\Scripts\python.exe") -and (Test-Path "$engineDir\.venv\Lib\site-packages\fastapi")) {
+    $python = "$engineDir\.venv\Scripts\python.exe"
 }
 
 Write-Host "Starting YeneCut AI Engine on http://127.0.0.1:8765..." -ForegroundColor Green
