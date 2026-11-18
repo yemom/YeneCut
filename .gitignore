@@ -84,5 +84,14 @@ logs/
 # pnpm lock (standardized on npm workspaces)
 pnpm-lock.yaml
 
+# Refact / local AI state
+.refact/
+
+# Release artifacts (built, not source-controlled)
+*.ccx
+*.zip
+*.exe
+YeneCut-AI*
+
 # OS files
 desktop.ini
