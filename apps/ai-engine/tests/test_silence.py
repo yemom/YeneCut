@@ -47,3 +47,5 @@ def test_silence_detect_sync(client, wav_file):
     assert data["duration"] > 0
     assert isinstance(data["silence_regions"], list)
     assert data["estimated_removable_duration"] >= 0
+    assert "provider" in data.get("detector_metadata", {})
+    assert data["detector_metadata"]["provider"] in ("energy", "silero")

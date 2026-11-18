@@ -78,3 +78,60 @@ def test_silence_detection_response_allows_queued_status():
         job_id="test-job-id",
     )
     assert resp_running.status == "running"
+
+
+def test_security_validate_source_path_validation(tmp_path):
+    """Test path security on empty, nonexistent, oversized, and valid media files."""
+    from app.core.security import validate_output_path, sanitize_filename
+
+    # Empty path
+    with pytest.raises(SecurityError, match="source_path is required"):
+        validate_source_path("", max_bytes=1024)
+
+    # Nonexistent file
+    with pytest.raises(SecurityError, match="source file does not exist"):
+        validate_source_path(str(tmp_path / "nonexistent.wav"), max_bytes=1024)
+
+    # Valid file
+    valid_wav = tmp_path / "valid.wav"
+    valid_wav.write_bytes(b"RIFF" + b"\x00" * 40)
+    res = validate_source_path(str(valid_wav), max_bytes=1024)
+    assert res == valid_wav.resolve()
+
+    # Oversized file
+    with pytest.raises(SecurityError, match="outside allowed range"):
+        validate_source_path(str(valid_wav), max_bytes=10)
+
+    # Output path validation
+    out_valid = tmp_path / "subtitles" / "output.srt"
+    res_out = validate_output_path(str(out_valid))
+    assert res_out.suffix == ".srt"
+    assert res_out.parent.exists()
+
+    with pytest.raises(SecurityError, match="unsupported output extension"):
+        validate_output_path(str(tmp_path / "danger.bat"))
+
+    # Sanitize filename
+    assert sanitize_filename("../evil<script>.wav") == "evilscript.wav"
+    assert sanitize_filename("") == "output"
+
+
+def test_security_auth_token_rejection():
+    """Verify that requests without token or with wrong token receive 401."""
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app)
+
+    # Missing token
+    resp = client.post("/api/v1/silence/detect", json={"source_path": "test.wav"})
+    assert resp.status_code == 401
+
+    # Invalid token
+    resp = client.post(
+        "/api/v1/silence/detect",
+        json={"source_path": "test.wav"},
+        headers={"X-YeneCut-Token": "wrong-token-value"},
+    )
+    assert resp.status_code == 401
+

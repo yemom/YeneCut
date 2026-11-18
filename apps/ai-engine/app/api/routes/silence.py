@@ -50,6 +50,7 @@ async def _run_silence(job, request: SilenceDetectionRequest) -> dict:
             "duration": prepared.duration,
             "silence_regions": [region.model_dump() for region in cuts],
             "estimated_removable_duration": round(estimated, 4),
+            "detector_metadata": detector.get_metadata(),
         }
     finally:
         if audio_path is not None:

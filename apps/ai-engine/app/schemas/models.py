@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -37,6 +37,7 @@ class SilenceDetectionResponse(BaseModel):
     silence_regions: list[SilenceRegion]
     estimated_removable_duration: float
     job_id: str | None = None
+    detector_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class TranscriptionRequest(BaseModel):

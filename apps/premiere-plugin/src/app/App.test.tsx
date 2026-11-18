@@ -20,4 +20,25 @@ describe("YeneCut AI plugin panel", () => {
     fireEvent.click(screen.getByText("captions"));
     expect(screen.getByText("Auto Captions")).toBeInTheDocument();
   });
+
+  it("switches to fonts tab and displays font studio", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("fonts"));
+    expect(screen.getByText("Ethiopian Font Studio")).toBeInTheDocument();
+  });
+
+  it("switches to settings tab and displays credentials configuration", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("settings"));
+    expect(screen.getByText("Settings & Engine Security")).toBeInTheDocument();
+    expect(screen.getByText("Engine URL")).toBeInTheDocument();
+    expect(screen.getByText(/Engine Token/)).toBeInTheDocument();
+  });
+
+  it("disables apply cut button when no regions are detected", () => {
+    render(<App />);
+    fireEvent.click(screen.getByText("silence"));
+    const applyBtn = screen.getByText("Apply Selected Cuts");
+    expect(applyBtn).toBeDisabled();
+  });
 });

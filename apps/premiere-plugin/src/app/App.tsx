@@ -56,6 +56,7 @@ export default function App() {
   const [silenceBusy, setSilenceBusy] = useState<boolean>(false);
   const [silenceError, setSilenceError] = useState<string>("");
   const [applyBusy, setApplyBusy] = useState<boolean>(false);
+  const [confirmingApply, setConfirmingApply] = useState<boolean>(false);
   const [applyMessage, setApplyMessage] = useState<string>("");
 
   // Caption state
@@ -143,6 +144,12 @@ export default function App() {
   }
 
   async function applyCuts() {
+    if (!confirmingApply) {
+      setConfirmingApply(true);
+      setApplyMessage("⚠️ Please confirm: This operation will cut silence from the selected clip. Click 'Confirm Apply Cuts' to proceed, or choose 'Preview as Markers' first.");
+      return;
+    }
+    setConfirmingApply(false);
     setApplyBusy(true);
     setApplyMessage("");
     try {
@@ -341,7 +348,16 @@ export default function App() {
             </div>
             <div className="actions">
               <button disabled={silenceBusy} onClick={() => void runSilenceAnalysis()}>{silenceBusy ? "Analyzing..." : "Analyze Audio"}</button>
-              <button disabled={applyBusy || silenceRegions.length === 0} onClick={() => void applyCuts()}>{applyBusy ? "Applying..." : "Apply Selected Cuts"}</button>
+              <button
+                disabled={applyBusy || silenceRegions.length === 0}
+                className={confirmingApply ? "confirm-action" : ""}
+                onClick={() => void applyCuts()}
+              >
+                {applyBusy ? "Applying..." : confirmingApply ? "Confirm Apply Cuts" : "Apply Selected Cuts"}
+              </button>
+              {confirmingApply && (
+                <button onClick={() => { setConfirmingApply(false); setApplyMessage(""); }}>Cancel</button>
+              )}
               <button disabled={silenceRegions.length === 0} onClick={() => void previewCuts()}>Preview as Markers</button>
               <button onClick={() => void clearMarkers()}>Clear Markers</button>
             </div>
