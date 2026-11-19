@@ -1,4 +1,4 @@
-# YeneCut AI (የነካት AI)
+# YeneCut AI 
 
 > **Edit Faster. Speak Amharic. Create Without Limits.**  
 > Ethiopian AI-powered Adobe Premiere Pro UXP plugin and local intelligence engine.
