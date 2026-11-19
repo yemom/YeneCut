@@ -50,20 +50,31 @@ def recommended_cuts(
 ) -> list[SilenceRegion]:
     cuts: list[SilenceRegion] = []
     for start, end in silence_intervals:
-        # Preserve padding around speech.
-        cut_start = start + (settings.post_speech_padding if start > 0 else 0.0)
-        cut_end = end - (settings.pre_speech_padding if end < total_duration else 0.0)
-        # Leading/trailing silence keeps one-sided padding.
+        # Preserve padding around speech safely
         if start == 0.0:
             cut_start = 0.0
-            cut_end = end - settings.pre_speech_padding
-        if end >= total_duration:
-            cut_start = start + settings.post_speech_padding
+            cut_end = max(0.0, end - settings.pre_speech_padding)
+        elif end >= total_duration:
+            cut_start = min(total_duration, start + settings.post_speech_padding)
             cut_end = total_duration
-        if cut_end - cut_start < settings.min_silence_duration:
+        else:
+            cut_start = start + settings.post_speech_padding
+            cut_end = end - settings.pre_speech_padding
+
+        if cut_end <= cut_start or (cut_end - cut_start) < settings.min_silence_duration:
             continue
-        confidence = min(0.99, 0.6 + (end - start) * 0.08 + settings.sensitivity * 0.2)
-        if settings.preserve_short_pauses and end - start < settings.min_silence_duration * 2:
-            confidence *= 0.8
-        cuts.append(SilenceRegion(start=round(cut_start, 6), end=round(cut_end, 6), duration=round(cut_end - cut_start, 6), confidence=round(confidence, 4)))
+
+        # Recommendation heuristic score bounded between 0.50 and 0.98
+        score = min(0.98, max(0.5, 0.6 + (end - start) * 0.05 + settings.sensitivity * 0.2))
+        if settings.preserve_short_pauses and (end - start) < settings.min_silence_duration * 2:
+            score *= 0.85
+
+        cuts.append(
+            SilenceRegion(
+                start=round(cut_start, 4),
+                end=round(cut_end, 4),
+                duration=round(cut_end - cut_start, 4),
+                confidence=round(score, 4),
+            )
+        )
     return cuts

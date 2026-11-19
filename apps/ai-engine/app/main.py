@@ -7,9 +7,11 @@ from app.config import settings
 
 app = FastAPI(title=settings.app_name, version=settings.app_version)
 
-app.include_router(health.router, prefix="/api/v1" if False else "")
-# health at /health
+# Health router at /health and /api/v1/health (unauthenticated for availability polling)
 app.include_router(health.router)
+app.include_router(health.router, prefix="/api/v1")
+
+# Authenticated API routers under /api/v1
 app.include_router(audio.router, prefix="/api/v1")
 app.include_router(silence.router, prefix="/api/v1")
 app.include_router(transcription.router, prefix="/api/v1")

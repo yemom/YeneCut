@@ -1,0 +1,33 @@
+name: Premiere Plugin CI
+
+on:
+  push:
+    branches: [main, "fix/**", "feature/**", "remediation/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - name: Clean npm install
+        run: npm ci
+
+      - name: TypeScript typecheck
+        run: npm run typecheck:plugin
+
+      - name: Build plugin and validate UXP artifacts
+        run: npm run build:plugin
+
+      - name: Run plugin unit tests
+        run: npm run test:plugin

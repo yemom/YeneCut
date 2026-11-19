@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger("yenecut.config")
 
 
 @dataclass(frozen=True)
@@ -29,3 +32,9 @@ class Settings:
 
 settings = Settings()
 settings.ensure_dirs()
+
+if settings.token == "yenecut-dev-token":
+    logger.warning(
+        "[SECURITY WARNING] Engine is running with default development token 'yenecut-dev-token'. "
+        "Set YENECUT_ENGINE_TOKEN environment variable for production deployments."
+    )

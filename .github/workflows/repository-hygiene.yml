@@ -1,0 +1,42 @@
+name: Repository Hygiene
+
+on:
+  push:
+    branches: [main, "fix/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Verify no tracked node_modules
+        run: |
+          if git ls-files | grep -E '^node_modules/|/node_modules/'; then
+            echo "FAIL: node_modules tracked in git index"
+            exit 1
+          fi
+
+      - name: Verify no tracked build outputs
+        run: |
+          if git ls-files | grep -E '^apps/premiere-plugin/dist/'; then
+            echo "FAIL: dist/ tracked in git index"
+            exit 1
+          fi
+
+      - name: Verify no tracked pycache or pyc
+        run: |
+          if git ls-files | grep -E '__pycache__|\.pyc$'; then
+            echo "FAIL: python bytecode tracked in git index"
+            exit 1
+          fi
+
+      - name: Check for committed secrets
+        run: |
+          if git grep -i "yenecut-dev-token" -- ':!apps/ai-engine/app/config.py' ':!docs/' ':!README.md'; then
+            echo "WARNING: Check occurrences of default development token"
+          fi

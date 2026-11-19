@@ -5,9 +5,10 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from app.config import settings
-from app.core.exceptions import ProcessingError
+from app.core.exceptions import JobCancelledError, ProcessingError
 
 
 def ffmpeg_available() -> bool:
@@ -24,20 +25,33 @@ def ffmpeg_available() -> bool:
         return False
 
 
-def run_ffmpeg(args: list[str], timeout: int | None = None) -> None:
+def run_ffmpeg(args: list[str], timeout: int | None = None, cancel_event: Any = None) -> None:
+    import time
+
     command = [settings.ffmpeg_path, "-y", *args]
-    result = subprocess.run(
+    process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        timeout=timeout or settings.request_timeout_seconds,
     )
-    if result.returncode != 0:
-        stderr = result.stderr.decode("utf-8", errors="replace")
-        raise ProcessingError(f"FFmpeg failed: {stderr[-2000:]}")
+    deadline = time.monotonic() + (timeout or settings.request_timeout_seconds)
+    while process.poll() is None:
+        if cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)():
+            process.kill()
+            process.communicate()
+            raise JobCancelledError("FFmpeg process cancelled")
+        if time.monotonic() > deadline:
+            process.kill()
+            process.communicate()
+            raise ProcessingError("FFmpeg timed out")
+        time.sleep(0.1)
+    stdout, stderr = process.communicate()
+    if process.returncode != 0:
+        text = stderr.decode("utf-8", errors="replace")
+        raise ProcessingError(f"FFmpeg failed: {text[-2000:]}")
 
 
-def extract_audio_to_wav(source_path: Path, output_path: Path, sample_rate: int = 16000) -> Path:
+def extract_audio_to_wav(source_path: Path, output_path: Path, sample_rate: int = 16000, cancel_event: Any = None) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     run_ffmpeg(
         [
@@ -51,7 +65,8 @@ def extract_audio_to_wav(source_path: Path, output_path: Path, sample_rate: int 
             "-ac",
             "1",
             str(output_path),
-        ]
+        ],
+        cancel_event=cancel_event,
     )
     if not output_path.exists() or output_path.stat().st_size == 0:
         raise ProcessingError("FFmpeg did not produce an audio file")

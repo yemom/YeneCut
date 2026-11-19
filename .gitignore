@@ -1,0 +1,98 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# Vite
+.vite/
+.vite-temp/
+*.timestamp-*.mjs
+
+# TypeScript
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+.Python
+*.egg-info/
+*.egg
+*.whl
+pip-log.txt
+.installed.cfg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.conda/
+
+# Pytest
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.hypothesis/
+
+# AI model caches
+*.bin
+*.onnx
+*.pt
+*.pth
+models/
+!apps/ai-engine/models/.gitkeep
+
+# Audio/Video temp files
+*.tmp.wav
+*.tmp.mp3
+*.tmp.mp4
+yenecut_tmp_*
+
+# Environment files
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+logs/
+
+# pnpm lock (standardized on npm workspaces)
+pnpm-lock.yaml
+
+# Refact / local AI state
+.refact/
+
+# Release artifacts (built, not source-controlled)
+*.ccx
+*.zip
+*.exe
+YeneCut-AI*
+
+# OS files
+desktop.ini
