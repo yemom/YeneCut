@@ -5,11 +5,30 @@
 | Component | Minimum Version | Recommended Version | Compatibility Status |
 | :--- | :--- | :--- | :--- |
 | **Operating System** | Windows 10 64-bit (21H2+) | Windows 11 64-bit | Verified supported |
-| **Adobe Premiere Pro** | v24.0.0 | v25.1.0+ | Manifest v5 supported |
+| **Adobe Premiere Pro** | v24.0.0 | v25.1.0 – v26.2+ | Manifest v5 supported |
 | **UXP Runtime** | v7.0 | v8.0+ | Verified supported |
 | **Node.js** | v18.0.0 | v22 LTS | Verified supported |
 | **Python** | v3.10.0 | v3.11 / v3.13 | Verified supported |
 | **FFmpeg** | v4.4+ | v6.0+ | Recommended for non-WAV media |
+
+---
+
+## 2. Adobe Premiere Pro Version Compatibility Matrix
+
+### Frame-Rate Resolution & Timeline Timebase
+Adobe Premiere Pro introduced `SequenceSettings.getVideoFrameRate()` in v26.2. Earlier versions (v24.x, v25.0, v25.1.0) do not expose this method. YeneCut implements a dual-mode fallback strategy to ensure frame accuracy across all supported host versions:
+
+1. **Host v26.2+**: Calls `sequenceSettings.getVideoFrameRate()` to obtain exact sequence frame rate.
+2. **Host v24.0 – v25.1.0**: Calls `sequence.getTimebase()` to obtain ticks-per-frame integer, calculating frame rate via `254016000000 / timebaseTicks` with sub-tick accuracy.
+3. **Safety Fallback**: If sequence metadata is locked or inaccessible, defaults to target clip frame rate or sequence standard 25 fps, logging a diagnostic note.
+
+### UXP API Implementation Evidence
+| Capability | API Method / Contract | Host Availability | Validation Method |
+| :--- | :--- | :--- | :--- |
+| **Transaction Atomicity** | `project.executeTransaction(actionGroup => ..., name)` | Premiere Pro 24.0+ | Vitest automated transaction tests |
+| **Clip Removal** | `project.createRemoveItemsAction(selection)` | Premiere Pro 24.0+ | Vitest automated action tests |
+| **Marker Management** | `marker.createRemoveMarkerAction()` / `project.createRemoveMarkerAction()` | Premiere Pro 24.0+ | Vitest + runtime feature check |
+| **Freshness Verification** | `verifyPlanFreshness(sequence, ppro, plan)` | Premiere Pro 24.0+ | Re-reads start/end/source in/out prior to transaction |
 
 ---
 

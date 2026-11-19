@@ -94,7 +94,7 @@ def test_security_validate_source_path_validation(tmp_path):
 
     # Valid file
     valid_wav = tmp_path / "valid.wav"
-    valid_wav.write_bytes(b"RIFF" + b"\x00" * 40)
+    valid_wav.write_bytes(b"RIFF" + (36).to_bytes(4, "little") + b"WAVE" + b"\x00" * 32)
     res = validate_source_path(str(valid_wav), max_bytes=1024)
     assert res == valid_wav.resolve()
 
@@ -120,6 +120,28 @@ def test_security_rejects_unc_network_paths():
     """Verify that remote UNC paths are rejected to prevent Windows SMB/NTLM leaks."""
     with pytest.raises(SecurityError, match="UNC network paths are not allowed"):
         validate_source_path(r"\\remote-server\share\audio.wav", max_bytes=1024 * 1024)
+
+    with pytest.raises(SecurityError, match="UNC network paths are not allowed"):
+        validate_source_path(r"//remote-server/share/audio.wav", max_bytes=1024 * 1024)
+
+
+def test_security_rejects_device_and_extended_paths():
+    """Verify that device namespaces and extended paths are rejected."""
+    with pytest.raises(SecurityError, match="device and extended paths are not allowed"):
+        validate_source_path(r"\\.\COM1", max_bytes=1024 * 1024)
+
+    with pytest.raises(SecurityError, match="device and extended paths are not allowed"):
+        validate_source_path(r"\\?\UNC\server\share\audio.wav", max_bytes=1024 * 1024)
+
+    with pytest.raises(SecurityError, match="device and extended paths are not allowed"):
+        validate_source_path(r"\\?\C:\media\audio.wav", max_bytes=1024 * 1024)
+
+
+def test_security_rejects_windows_reserved_names():
+    """Verify that Windows reserved device names (CON, NUL, AUX, PRN, COM, LPT) are rejected."""
+    for name in ["CON.wav", "aux.mp4", "NUL.flac", "com1.ogg", "lpt3.wav"]:
+        with pytest.raises(SecurityError, match="Windows reserved device name"):
+            validate_source_path(f"C:\\videos\\{name}", max_bytes=1024 * 1024)
 
 
 def test_security_auth_token_rejection():

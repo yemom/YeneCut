@@ -86,6 +86,109 @@ export interface EditPlan {
   frameRate: number;          // frames per second (informational)
   ticksPerFrame: number;      // integer ticks
   operationCount: number;
+  createdAt: number;          // timestamp ms
+}
+
+/**
+ * Validates that an EditPlan is still fresh and that timeline state
+ * (clip position, source in/out, tracks, linked clips) has not changed.
+ */
+export async function verifyPlanFreshness(
+  sequence: any,
+  ppro: any,
+  plan: EditPlan
+): Promise<{ fresh: boolean; reason?: string }> {
+  try {
+    const currentSeqId = (() => {
+      try { return sequence.getId ? sequence.getId() : "unknown"; } catch { return "unknown"; }
+    })();
+
+    if (plan.sequenceId !== "unknown" && currentSeqId !== "unknown" && plan.sequenceId !== currentSeqId) {
+      return { fresh: false, reason: "Active sequence has changed" };
+    }
+
+    const primary = plan.primaryItem;
+    const isVideo = primary.trackType === "video";
+    const track = isVideo
+      ? await sequence.getVideoTrack(primary.trackIndex)
+      : await sequence.getAudioTrack(primary.trackIndex);
+
+    if (!track) {
+      return { fresh: false, reason: `Target track ${primary.trackType}[${primary.trackIndex}] is missing or inaccessible` };
+    }
+
+    const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false);
+    let primaryFound = false;
+
+    for (const item of items) {
+      const candidateId = await getClipId(item);
+      if (candidateId !== primary.clipId) continue;
+
+      const startTime = await item.getStartTime();
+      const endTime = await item.getEndTime();
+      const inPoint = await item.getInPoint();
+      const outPoint = await item.getOutPoint();
+
+      const timeMatches =
+        Math.abs(startTime.seconds - primary.startInSequence) < 0.05 &&
+        Math.abs(endTime.seconds - primary.endInSequence) < 0.05;
+      const sourceMatches =
+        Math.abs(inPoint.seconds - primary.sourceInPoint) < 0.05 &&
+        Math.abs(outPoint.seconds - primary.sourceOutPoint) < 0.05;
+
+      if (timeMatches && sourceMatches) {
+        primaryFound = true;
+        break;
+      }
+    }
+
+    if (!primaryFound) {
+      return {
+        fresh: false,
+        reason: "Target clip was moved, trimmed, deleted, or replaced on the timeline after analysis",
+      };
+    }
+
+    // Verify linked items if verified
+    if (plan.linkConfidence === "verified") {
+      for (const linked of plan.linkedItems) {
+        const isLinkedVideo = linked.trackType === "video";
+        const linkedTrack = isLinkedVideo
+          ? await sequence.getVideoTrack(linked.trackIndex)
+          : await sequence.getAudioTrack(linked.trackIndex);
+
+        if (!linkedTrack) {
+          return { fresh: false, reason: `Linked track ${linked.trackType}[${linked.trackIndex}] is missing` };
+        }
+
+        const linkedItems = linkedTrack.getTrackItems(ppro.Constants.TrackItemType.CLIP, false);
+        let linkedFound = false;
+        for (const item of linkedItems) {
+          const cid = await getClipId(item);
+          if (cid !== linked.clipId) continue;
+          const st = await item.getStartTime();
+          const et = await item.getEndTime();
+          if (
+            Math.abs(st.seconds - linked.startInSequence) < 0.05 &&
+            Math.abs(et.seconds - linked.endInSequence) < 0.05
+          ) {
+            linkedFound = true;
+            break;
+          }
+        }
+        if (!linkedFound) {
+          return {
+            fresh: false,
+            reason: "Linked audio/video clip was moved or modified on the timeline after analysis",
+          };
+        }
+      }
+    }
+
+    return { fresh: true };
+  } catch (err) {
+    return { fresh: false, reason: `Timeline state verification failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
 
 // ─── Helper: Frame-accurate tick conversion ───────────────────────────────────
@@ -284,17 +387,44 @@ async function buildEditPlan(
   // 2. Resolve linked clips
   const { linked, confidence } = await resolveLinkedClips(sequence, ppro, primaryItem);
 
-  // 3. Obtain actual frame rate (never hardcode 29.97)
-  const settings = await sequence.getSettings();
-  const frameRate = settings.getVideoFrameRate();  // synchronous, returns FrameRate
+  // 3. Obtain actual frame rate with fallback for Premiere < 26.2
+  let frameRateVal = 25;
+  let ticksPerFrame = 10160640;
+  let frameRateObj: any = null;
+
+  try {
+    const settings = await sequence.getSettings();
+    if (settings && typeof settings.getVideoFrameRate === "function") {
+      frameRateObj = settings.getVideoFrameRate();
+      frameRateVal = frameRateObj.value;
+      ticksPerFrame = frameRateObj.ticksPerFrame;
+    } else if (sequence.getTimebase) {
+      const tb = await sequence.getTimebase();
+      const parsed = parseFloat(tb);
+      if (!isNaN(parsed) && parsed > 0) {
+        frameRateVal = parsed;
+        ticksPerFrame = Math.round(254016000 / parsed);
+      }
+    }
+  } catch {
+    // Keep 25 fps fallback
+  }
 
   // 4. Map silence regions to frame-aligned times
   const alignedRegions = silenceRegionsInSequence
     .filter((r) => r.end > r.start + 0.001)
-    .map((r) => ({
-      seqStart: secondsToFrameAlignedTick(ppro, r.start, frameRate).seconds,
-      seqEnd: secondsToFrameAlignedTick(ppro, r.end, frameRate).seconds,
-    }));
+    .map((r) => {
+      if (frameRateObj) {
+        return {
+          seqStart: secondsToFrameAlignedTick(ppro, r.start, frameRateObj).seconds,
+          seqEnd: secondsToFrameAlignedTick(ppro, r.end, frameRateObj).seconds,
+        };
+      }
+      return {
+        seqStart: Math.round(r.start * frameRateVal) / frameRateVal,
+        seqEnd: Math.round(r.end * frameRateVal) / frameRateVal,
+      };
+    });
 
   // 5. Determine which regions actually overlap the primary clip
   const clippedRegions = alignedRegions.filter(
@@ -313,9 +443,10 @@ async function buildEditPlan(
     linkedItems: linked,
     linkConfidence: confidence,
     silenceRegions: clippedRegions,
-    frameRate: frameRate.value,
-    ticksPerFrame: frameRate.ticksPerFrame,
+    frameRate: frameRateVal,
+    ticksPerFrame: ticksPerFrame,
     operationCount: clippedRegions.length,
+    createdAt: Date.now(),
   };
 }
 
@@ -439,6 +570,17 @@ export async function applySilenceCuts(
     return {
       success: false,
       message: "No silence regions overlap the selected clip after frame-alignment.",
+      cutsApplied: 0,
+      noOp: true,
+    };
+  }
+
+  // Verify stale plan protection: re-read sequence state immediately before execution
+  const freshness = await verifyPlanFreshness(sequence, ppro, plan);
+  if (!freshness.fresh) {
+    return {
+      success: false,
+      message: `Stale EditPlan rejected: ${freshness.reason}. Timeline state has changed since analysis. Please re-analyze the clip before applying cuts.`,
       cutsApplied: 0,
       noOp: true,
     };
@@ -615,8 +757,24 @@ export async function previewSilenceCutsAsMarkers(
 
   try {
     const markersOwner = await ppro.Markers.getMarkers(sequence);
+    // Find and clear any existing YeneCut preview markers first to prevent duplicate stacking
+    const allMarkers = await markersOwner.getMarkers();
+    const existingPreviewMarkers = (allMarkers || []).filter((m: any) => {
+      try { return m.name === "YeneCut Preview"; } catch { return false; }
+    });
+
     project.lockedAccess(() => {
       project.executeTransaction((compoundAction: any) => {
+        // 1. Remove previous preview markers safely without touching user markers
+        existingPreviewMarkers.forEach((marker: any) => {
+          if (markersOwner.createRemoveMarkerAction) {
+            compoundAction.addAction(markersOwner.createRemoveMarkerAction(marker));
+          } else if (markersOwner.createDeleteMarkerAction) {
+            compoundAction.addAction(markersOwner.createDeleteMarkerAction(marker));
+          }
+        });
+
+        // 2. Add new preview markers (visual only - clips are NEVER modified or moved during preview)
         sequenceRegions.forEach((region) => {
           const durationSecs = Math.max(region.end - region.start, 0);
           const action = markersOwner.createAddMarkerAction(
@@ -648,17 +806,6 @@ export async function clearPreviewMarkers(): Promise<boolean> {
   if (!ppro || !project) return false;
   const sequence = await getActiveSequence(project);
   if (!sequence) return false;
-
-  if (targetClip) {
-    if (targetClip.isAdjustmentLayer || targetClip.isNestedSequence || targetClip.isReversed) {
-      console.warn("[YeneCut] Cannot preview silence markers on adjustment layers, nested sequences, or reversed clips.");
-      return false;
-    }
-    if (targetClip.speed !== undefined && Math.abs(targetClip.speed - 1.0) > 0.001) {
-      console.warn(`[YeneCut] Cannot preview silence markers on speed-ramped clips (${targetClip.speed}x).`);
-      return false;
-    }
-  }
 
   try {
     const markersOwner = await ppro.Markers.getMarkers(sequence);

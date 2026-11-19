@@ -27,7 +27,7 @@ async def _run_silence(job, request: SilenceDetectionRequest) -> dict:
     job.progress = 0.15
     audio_path: Path | None = None
     try:
-        audio_path = extract_audio(source, settings.max_upload_bytes)
+        audio_path = extract_audio(source, settings.max_upload_bytes, cancel_event=job.cancel_event)
         job.progress = 0.35
         job.check_cancelled()
         audio = load_wav(audio_path)

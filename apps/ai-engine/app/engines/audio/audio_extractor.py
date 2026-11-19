@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from scipy.io import wavfile
 from scipy.signal import resample_poly
 
-from app.core.exceptions import ProcessingError
+from app.core.exceptions import JobCancelledError, ProcessingError
 from app.core.security import validate_source_path
 from app.engines.audio.audio_loader import load_wav
 from app.utils.ffmpeg import extract_audio_to_wav, temp_wav_path
@@ -25,12 +26,21 @@ def _wav_to_16k_mono(source: Path, output: Path) -> Path:
     return output
 
 
-def extract_audio(source_path: Path | str, max_bytes: int) -> Path:
+def extract_audio(source_path: Path | str, max_bytes: int, cancel_event: Any = None) -> Path:
     validated = validate_source_path(str(source_path), max_bytes)
     output = temp_wav_path("audio")
     if validated.suffix.lower() == ".wav":
-        return _wav_to_16k_mono(validated, output)
+        if cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)():
+            raise JobCancelledError("Audio extraction cancelled")
+        result = _wav_to_16k_mono(validated, output)
+        if cancel_event is not None and getattr(cancel_event, "is_set", lambda: False)():
+            try:
+                output.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise JobCancelledError("Audio extraction cancelled")
+        return result
     try:
-        return extract_audio_to_wav(validated, output)
+        return extract_audio_to_wav(validated, output, cancel_event=cancel_event)
     except Exception as exc:
         raise ProcessingError(f"Could not extract audio: {exc}") from exc

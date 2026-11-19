@@ -166,9 +166,10 @@ export async function getSelectedClips(): Promise<ClipInfo[]> {
     // Query audio tracks for selected clips
     for (let i = 0; i < audioTrackCount; i++) {
       const track = await sequence.getAudioTrack(i);
-      const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, true);
+      const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false); // includeEmptyTrackItems=false
       for (const item of items) {
         try {
+          if (!(await item.getIsSelected())) continue;
           const startTime = await item.getStartTime();
           const endTime = await item.getEndTime();
           const inPoint = await item.getInPoint();
@@ -231,6 +232,9 @@ export async function getSelectedClips(): Promise<ClipInfo[]> {
  * Maps a timestamp in source media coordinates to sequence timeline coordinates.
  */
 export function mapSourceToSequenceTime(sourceTime: number, clip: ClipInfo): number | null {
+  if (clip.isReversed) return null;
+  if (clip.speed !== undefined && Math.abs(clip.speed - 1.0) > 0.001) return null;
+  if (clip.isNestedSequence) return null;
   if (sourceTime < clip.sourceInPoint || sourceTime > clip.sourceOutPoint) {
     return null; // Timestamp falls outside this clip's used range
   }
@@ -327,6 +331,51 @@ export async function getClipProjectItem(project: any, includeSequence = true): 
   return null;
 }
 
+export async function getSelectedProjectItem(project: any, includeSequence = true): Promise<any | null> {
+  const ppro = getPremiere();
+  if (!ppro || !project) return null;
+  try {
+    const sequence = await getActiveSequence(project);
+    if (sequence) {
+      const videoTrackCount = await sequence.getVideoTrackCount();
+      const audioTrackCount = await sequence.getAudioTrackCount();
+      for (let i = 0; i < videoTrackCount; i++) {
+        const track = await sequence.getVideoTrack(i);
+        const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false);
+        for (const item of items) {
+          try {
+            if (!(await item.getIsSelected())) continue;
+            const projectItem = await item.getProjectItem();
+            if (!projectItem) continue;
+            const accept = includeSequence || (await projectItem.getContentType()) === ppro.Constants.ContentType.MEDIA;
+            if (accept) return projectItem;
+          } catch {
+            // Ignore inaccessible selected items
+          }
+        }
+      }
+      for (let i = 0; i < audioTrackCount; i++) {
+        const track = await sequence.getAudioTrack(i);
+        const items = track.getTrackItems(ppro.Constants.TrackItemType.CLIP, false);
+        for (const item of items) {
+          try {
+            if (!(await item.getIsSelected())) continue;
+            const projectItem = await item.getProjectItem();
+            if (!projectItem) continue;
+            const accept = includeSequence || (await projectItem.getContentType()) === ppro.Constants.ContentType.MEDIA;
+            if (accept) return projectItem;
+          } catch {
+            // Ignore inaccessible selected items
+          }
+        }
+      }
+    }
+  } catch {
+    // Fall back to project-bin discovery
+  }
+  return getClipProjectItem(project, includeSequence);
+}
+
 /**
  * Imports transcript segments into Premiere's native Transcript system.
  */
@@ -334,7 +383,7 @@ export async function importTranscriptToSelectedClip(transcriptJson: string): Pr
   const ppro = getPremiere();
   const project = await getActiveProject();
   if (!ppro || !project) return false;
-  const clip = await getClipProjectItem(project, true);
+  const clip = await getSelectedProjectItem(project, true);
   if (!clip) return false;
 
   try {

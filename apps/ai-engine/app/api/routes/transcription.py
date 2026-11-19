@@ -33,7 +33,7 @@ async def _run_transcription(job, request: TranscriptionRequest) -> dict:
     prepared_path: Path | None = None
 
     try:
-        audio_path = extract_audio(source, settings.max_upload_bytes)
+        audio_path = extract_audio(source, settings.max_upload_bytes, cancel_event=job.cancel_event)
         job.progress = 0.3
         job.check_cancelled()
         audio = load_wav(audio_path)
@@ -55,6 +55,7 @@ async def _run_transcription(job, request: TranscriptionRequest) -> dict:
         job.progress = 0.8
         corrected_segments = []
         for segment in segments:
+            job.check_cancelled()
             corrected_segments.append(
                 TranscriptSegment(
                     start=segment.start,

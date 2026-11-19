@@ -172,8 +172,8 @@ export default function App() {
     const success = await previewSilenceCutsAsMarkers(silenceRegions, selectedClip, parseFloat(frameRate) || 25);
     setApplyMessage(
       success
-        ? "Preview markers added to sequence. Unrelated tracks are untouched."
-        : "Could not add preview markers."
+        ? "Preview markers added to sequence. NOTE: Preview adds project sequence markers to visualize proposed cut intervals without modifying, trimming, or moving any media clips. Click 'Clear Markers' to remove preview markers at any time."
+        : "Could not add preview markers. Ensure a clip is selected and sequence is accessible."
     );
   }
 

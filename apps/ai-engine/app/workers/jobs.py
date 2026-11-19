@@ -27,16 +27,21 @@ class Job:
     def cancelled(self) -> bool:
         return self._cancel_event.is_set()
 
+    @property
+    def cancel_event(self) -> asyncio.Event:
+        return self._cancel_event
+
     def check_cancelled(self) -> None:
         if self._cancel_event.is_set():
             raise JobCancelledError(f"Job {self.job_id} was cancelled")
 
 
 class JobManager:
-    def __init__(self, max_jobs: int = 100, ttl_seconds: float = 3600.0) -> None:
+    def __init__(self, max_jobs: int = 100, ttl_seconds: float = 3600.0, timeout_seconds: float = 3600.0) -> None:
         self._jobs: dict[str, Job] = {}
         self.max_jobs = max_jobs
         self.ttl_seconds = ttl_seconds
+        self.timeout_seconds = timeout_seconds
 
     def _prune_expired(self) -> None:
         now = time.time()
@@ -77,13 +82,16 @@ class JobManager:
     async def run(self, job: Job, worker: Callable[[Job], Awaitable[Any]]) -> None:
         job.status = "running"
         try:
-            result = await worker(job)
+            result = await asyncio.wait_for(worker(job), timeout=self.timeout_seconds)
             if job.cancelled:
                 job.status = "cancelled"
             else:
                 job.status = "completed"
                 job.result = result if isinstance(result, dict) else {"value": result}
                 job.progress = 1.0
+        except asyncio.TimeoutError:
+            job.status = "timed_out"
+            job.error = f"Job timed out after {self.timeout_seconds} seconds"
         except JobCancelledError:
             job.status = "cancelled"
         except Exception as exc:  # noqa: BLE001
