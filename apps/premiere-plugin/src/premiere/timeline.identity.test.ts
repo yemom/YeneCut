@@ -193,3 +193,59 @@ describe("Timeline Identity: Boundary Protection & Overlapping Clip Safety", () 
     expect(brollOverlayOnV2.trackIndex).not.toBe(targetClip.trackIndex);
   });
 });
+
+describe("Timeline Identity: Identical Source In/Out Repeated at Different Positions", () => {
+  // A recurring sting or soundbite used twice with identical source in/out:
+  // Instance 1: source 0-10s placed at sequence 0-10s
+  // Instance 2: source 0-10s placed at sequence 100-110s
+  const stingInstance1: ClipInfo = {
+    name: "Logo_Sting",
+    mediaPath: "C:\\Media\\sting.mp4",
+    startInSequence: 0.0,
+    endInSequence: 10.0,
+    sourceInPoint: 0.0,
+    sourceOutPoint: 10.0,
+    trackIndex: 0,
+    trackType: "video",
+  };
+
+  const stingInstance2: ClipInfo = {
+    name: "Logo_Sting",
+    mediaPath: "C:\\Media\\sting.mp4",
+    startInSequence: 100.0,
+    endInSequence: 110.0,
+    sourceInPoint: 0.0,
+    sourceOutPoint: 10.0,
+    trackIndex: 0,
+    trackType: "video",
+  };
+
+  it("maps cuts exclusively within target instance boundaries when source in/out are identical", () => {
+    // Silence detected in sting at 2.0s-4.0s
+    const silence = [{ start: 2.0, end: 4.0 }];
+
+    // Targeted at Instance 1
+    const mappedForInstance1 = mapSilenceIntervalsToSequence(silence, stingInstance1);
+    expect(mappedForInstance1.length).toBe(1);
+    expect(mappedForInstance1[0].start).toBeCloseTo(2.0, 1);
+    expect(mappedForInstance1[0].end).toBeCloseTo(4.0, 1);
+
+    // Sequence coordinates 2.0s-4.0s fall completely OUTSIDE Instance 2's sequence boundaries (100-110s)
+    const cutsOverlapInstance2 =
+      mappedForInstance1[0].start >= stingInstance2.startInSequence - 0.05 &&
+      mappedForInstance1[0].end <= stingInstance2.endInSequence + 0.05;
+    expect(cutsOverlapInstance2).toBe(false);
+
+    // Targeted at Instance 2
+    const mappedForInstance2 = mapSilenceIntervalsToSequence(silence, stingInstance2);
+    expect(mappedForInstance2.length).toBe(1);
+    expect(mappedForInstance2[0].start).toBeCloseTo(102.0, 1);
+    expect(mappedForInstance2[0].end).toBeCloseTo(104.0, 1);
+
+    // Sequence coordinates 102.0s-104.0s fall completely OUTSIDE Instance 1's sequence boundaries (0-10s)
+    const cutsOverlapInstance1 =
+      mappedForInstance2[0].start >= stingInstance1.startInSequence - 0.05 &&
+      mappedForInstance2[0].end <= stingInstance1.endInSequence + 0.05;
+    expect(cutsOverlapInstance1).toBe(false);
+  });
+});

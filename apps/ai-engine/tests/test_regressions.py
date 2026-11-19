@@ -144,6 +144,16 @@ def test_security_rejects_windows_reserved_names():
             validate_source_path(f"C:\\videos\\{name}", max_bytes=1024 * 1024)
 
 
+def test_security_rejects_symlink_or_junction(tmp_path, monkeypatch):
+    """Verify that symlinks and junctions are blocked when realpath differs from abspath."""
+    target = tmp_path / "real.wav"
+    target.write_bytes(b"RIFF" + (36).to_bytes(4, "little") + b"WAVE" + b"\x00" * 32)
+
+    monkeypatch.setattr("os.path.realpath", lambda p: str(tmp_path / "escaped_target.wav"))
+    with pytest.raises(SecurityError, match="symlink or junction is not allowed"):
+        validate_source_path(str(target), max_bytes=1024)
+
+
 def test_security_auth_token_rejection():
     """Verify that requests without token or with wrong token receive 401."""
     from fastapi.testclient import TestClient
